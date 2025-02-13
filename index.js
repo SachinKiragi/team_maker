@@ -1,10 +1,14 @@
 const fs = require("fs").promises;
+const fsp = require('fs')
 const path = require("path");
 const os = require("os");
 const PdfParse = require("pdf-parse");
 const ps = require('prompt-sync');
 const textract = require('textract')
 const mammoth = require('mammoth');
+const unzipper = require("unzipper");
+const xml2js = require('xml2js')
+
 
 const MAX_FILES = 10000;
 const EXCLUDED_DIRS = ["node_modules", ".git", "vendor", "build"]; // Add more if needed
@@ -97,26 +101,64 @@ const handleCurrentDocxFile = async(filePath)=>{
 }
 
 
-const getPptData = (filePath)=>{
-    return new Promise((resolve, reject)=>{
-        
-    textract.fromFileWithPath(filePath, (error, text) => {
-        if (error) {
-            console.error("Error extracting text:", error);
+async function extractTextFromPPTX(filePath) {
+    const pptxText = [];
+
+    // Unzip PPTX file
+    const zip = fsp.createReadStream(filePath).pipe(unzipper.Parse({ forceStream: true }));
+
+    for await (const entry of zip) {
+        // Look for slide XML files
+        if (entry.path.startsWith("ppt/slides/slide") && entry.path.endsWith(".xml")) {
+            const content = await entry.buffer();
+            const parsedXml = await xml2js.parseStringPromise(content);
+            
+            // Extract text from slide
+            const textElements = extractText(parsedXml);
+            pptxText.push(...textElements);
         } else {
-            resolve(text);
+            entry.autodrain();
         }
-    });
-    })
+    }
+
+    // console.log("Extracted Text:", pptxText.join(" "));
+    return pptxText.join(" ");
 }
 
-const handleCurrentPptFile = async(filePath)=>{
-    getPptData().then(data => {
-        console.log(data);
-    })
+// Function to extract text from XML structure
+function extractText(xmlObj) {
+    let textArray = [];
+
+    function traverse(obj) {
+        if (typeof obj === "object") {
+            for (const key in obj) {
+                if (key === "a:t") {
+                    textArray.push(obj[key][0]); // Extract actual text
+                } else {
+                    traverse(obj[key]);
+                }
+            }
+        }
+    }
+
+    traverse(xmlObj);
+    return textArray;
 }
 
-handleCurrentPptFile("C:\\Users\\Sachin\\OneDrive\\Desktop\\sample_space\\pptx\\sample2.pptx")
+// Run function
+
+const handleCurrentPptxFile = async(filePath)=>{
+    const data = (await extractTextFromPPTX(filePath)).toLowerCase();
+    
+    for(let key of keyWords){
+        if(data.includes(key.toLowerCase())){
+            await moveFilesFromSourceToDestination(filePath, destinationFolderPath);
+        }
+    }
+    
+}
+
+
 
 const readFilesRecursively = async (dir) => {
 
@@ -143,13 +185,15 @@ const readFilesRecursively = async (dir) => {
                     await handleCurrentPdfFile(fullPath);
                 } else if(entry.name.endsWith(".docx")){
                     await handleCurrentDocxFile(fullPath);
+                } else if(entry.name.endsWith(".pptx")){
+                    await handleCurrentPptxFile(fullPath);
                 }
 
                 fileCount++;
                 if (fileCount >= MAX_FILES) return; // Stop if we reach 500
             }
         }
-        await checkIfFolderIsEmptyIfSoDeleteIt(dir);
+        // await checkIfFolderIsEmptyIfSoDeleteIt(dir);
     } catch (error) {
         console.error(`Error reading ${dir}:`, error.message);
     }
@@ -204,5 +248,5 @@ const main = async()=>{
 
 }
 
-// main()
+main()
 //C:\Users\Sachin\OneDrive\Desktop\ESA\iotplusml\ss
