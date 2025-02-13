@@ -160,6 +160,30 @@ const handleCurrentPptxFile = async(filePath)=>{
 
 
 
+const deleteEmptyFolders = async (dir) => {
+
+    try {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+
+            // Skip large or unnecessary directories
+            if (entry.isDirectory() && EXCLUDED_DIRS.includes(entry.name)) {
+                // console.log(`Skipping folder: ${fullPath}`);
+                return;
+            }
+
+            if (entry.isDirectory()) {
+                await deleteEmptyFolders(fullPath);
+            }
+        }
+         await checkIfFolderIsEmptyIfSoDeleteIt(dir);
+    } catch (error) {
+        console.error(`Error reading ${dir}:`, error.message);
+    }
+};
+
+
 const readFilesRecursively = async (dir) => {
 
     try {
@@ -211,6 +235,7 @@ const readFiles = async (entryPath) => {
 
         console.log(`Scanning for PDFs in: ${entryPath}`);
         await readFilesRecursively(entryPath);
+        await deleteEmptyFolders(entryPath);
 
         console.log(`Printed ${fileCount} PDF file paths.`);
     } catch (error) {
